@@ -613,6 +613,15 @@ class SandboxReactNativeDelegate(
         }
 
         override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> =
-            delegate.createViewManagers(reactContext)
+            // Core RN view managers (RCTView, RCTText, scroll, image…) PLUS the
+            // host's third-party native views (react-native-svg, etc.). Unlike
+            // TurboModules — which are capabilities and stay behind the allowlist
+            // — view managers only render UI, so the host's are exposed wholesale
+            // so a sandboxed bundle can use the app's native components (e.g. an
+            // SVG-based design system). Without this, Fabric finds the component
+            // descriptor (registered via DefaultComponentsRegistry) but no Java
+            // ViewManager, and aborts with "Can't find ViewManager 'RNSVG…'".
+            delegate.createViewManagers(reactContext) +
+                hostPackages.flatMap { it.createViewManagers(reactContext) }
     }
 }
