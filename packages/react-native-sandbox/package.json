@@ -21,6 +21,7 @@
     "isolation"
   ],
   "files": [
+    "lib",
     "src",
     "ios",
     "cxx",
