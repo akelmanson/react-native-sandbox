@@ -173,20 +173,24 @@ class SandboxReactNativeDelegate(
                 val componentFactory = ComponentFactory()
                 DefaultComponentsRegistry.register(componentFactory)
 
-                // For a remote (http/https) bundle, disable developer support on this
-                // ReactHost. With dev support enabled the runtime ignores jsBundleLoader
-                // and fetches the bundle from the Metro dev server using jsMainModulePath,
-                // turning the URL into http://localhost:8081/<url>.bundle (a 404). Local
-                // sources ("index"/asset names) keep dev support so Fast Refresh works.
-                val isRemoteBundle = capturedBundleSource.startsWith("http://") ||
-                    capturedBundleSource.startsWith("https://")
+                // For an explicit bundle (remote http/https, or a local filesystem
+                // path/file:// — anything we hand to the JSBundleLoader ourselves),
+                // disable developer support on this ReactHost. With dev support enabled
+                // the runtime ignores jsBundleLoader and fetches from the Metro dev
+                // server using jsMainModulePath, turning the source into
+                // http://localhost:8081/<source>.bundle (a 404). Bare names
+                // ("index"/asset) keep dev support so Metro/Fast Refresh work.
+                val isExplicitBundle = capturedBundleSource.startsWith("http://") ||
+                    capturedBundleSource.startsWith("https://") ||
+                    capturedBundleSource.startsWith("file://") ||
+                    capturedBundleSource.startsWith("/")
                 host =
                     ReactHostImpl(
                         sandboxContext,
                         hostDelegate,
                         componentFactory,
-                        !isRemoteBundle,
-                        !isRemoteBundle,
+                        !isExplicitBundle,
+                        !isExplicitBundle,
                     )
 
                 ownsReactHost = true
@@ -333,6 +337,23 @@ class SandboxReactNativeDelegate(
                     bundleSource,
                     true,
                 )
+            }
+
+            bundleSource.startsWith("/") || bundleSource.startsWith("file://") -> {
+                // Local filesystem bundle (outside assets). Lets the host own OTA:
+                // download/verify the bundle itself, write it to app-writable storage
+                // (filesDir/cacheDir), then point the sandbox at the resulting path.
+                // The sandbox VM never touches the network this way. Loaded
+                // synchronously for the same reason as the remote branch (so the
+                // bundle doesn't run before TurboModule bindings are installed on
+                // RN 0.85 bridgeless). Note: assets:// is read-only and packaged at
+                // build time, so a downloaded bundle must live on the FS, not there.
+                val path = bundleSource.removePrefix("file://")
+                if (!File(path).exists()) {
+                    Log.e(TAG, "Local bundle not found at '$path'")
+                    return null
+                }
+                JSBundleLoader.createFileLoader(path, bundleSource, true)
             }
 
             else -> {
